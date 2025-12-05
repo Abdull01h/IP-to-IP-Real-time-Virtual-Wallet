@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>IP-to-IP Virtual Wallet</title>
+<style>
+body{margin:0;background:#0b0c10;color:#fff;font-family:Arial;}
+.container{max-width:980px;margin:auto;padding:14px;}
+.card{background:#1f2833;padding:12px;border-radius:8px;margin-bottom:10px;}
+input,button,select,video{width:100%;padding:8px;margin:4px 0;border-radius:6px;border:0;}
+button{background:#45a29e;color:#fff;cursor:pointer;}
+button.alt{background:#c5c6c7;color:#000;}
+.hidden{display:none;}
+.row{display:flex;gap:8px;flex-wrap:wrap;}
+.col{flex:1;min-width:220px;}
+img{width:70px;height:70px;border-radius:50%;object-fit:cover;}
+.userBox{border-bottom:1px dashed #555;padding:6px;}
+.small{font-size:12px;color:#aaa;}
+canvas{background:#fff;border-radius:8px;}
+video{border-radius:8px;}
+.bad{color:#ff6b6b;}
+.good{color:#2ecc71;}
+</style>
+</head>
+<body>
+<div class="container">
+
+<!-- LOGIN -->
+<div id="loginBox" class="card">
+<h2>Login</h2>
+<input id="luser" placeholder="Username">
+<input id="lpass" type="password" placeholder="Password">
+<input id="lpin" placeholder="PIN">
+<button onclick="login()">Login</button>
+<button class="alt" onclick="showReg()">Register</button>
+</div>
+
+<!-- REGISTER -->
+<div id="regBox" class="card hidden">
+<h2>Register</h2>
+<input id="ruser" placeholder="Username">
+<input id="rpass" type="password" placeholder="Password">
+<input id="rpin" placeholder="PIN">
+<input id="rphone" placeholder="Phone Number">
+<button onclick="register()">Register</button>
+<button class="alt" onclick="backLogin()">Back</button>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dash" class="hidden">
+
+<div class="card row">
+<div class="col">
+<h3 id="name"></h3>
+<img id="photo"><br>
+<input type="file" onchange="uploadPhoto(event)">
+<div>Balance: <b id="bal"></b></div>
+<button class="alt" onclick="logout()">Logout</button>
+</div>
+
+<div class="col">
+<h3>Send Money</h3>
+<input id="to" placeholder="Username or Phone">
+<input id="amt" type="number" placeholder="Amount">
+<input id="spin" placeholder="PIN">
+<button onclick="send()">Send</button>
+<button class="alt" onclick="startScan()">Scan QR</button>
+<video id="video" class="hidden"></video>
+</div>
+
+<div class="col">
+<h3>My QR</h3>
+<canvas id="qr" width="150" height="150"></canvas>
+<button onclick="generateQR()">Generate</button>
+</div>
+</div>
+
+<!-- ADMIN PANEL -->
+<div id="adminPanel" class="card hidden">
+<h3>Admin Panel</h3>
+
+<div class="row">
+<div class="col">
+<h4>Main Admin Balance Control</h4>
+<input id="ctlUser" placeholder="Target Username">
+<input id="ctlAmt" type="number" placeholder="Amount (+ add / − remove)">
+<input id="ctlPin" placeholder="Main Admin PIN">
+<button onclick="mainAdjust()">Apply</button>
+<p class="small">Only Main Admin can adjust balances.</p>
+</div>
+
+<div class="col">
+<h4>Admin Requests</h4>
+<div id="adminRequests"></div>
+</div>
+
+<div class="col">
+<h4>Live Online Users</h4>
+<div>Total: <b id="onlineCount">0</b></div>
+<div id="onlineList"></div>
+</div>
+</div>
+
+<h4>All Users</h4>
+<div id="userList"></div>
+</div>
+
+<div class="card">
+<h3>Transactions</h3>
+<div id="txLog"></div>
+</div>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr/dist/jsQR.js"></script>
+<script>
+// --- WebSocket setup for P2P / server ---
+const socket = new WebSocket('ws://localhost:3000'); // Node.js WS server
+socket.onopen = ()=>console.log("Connected to WS server");
+socket.onmessage = msg=>{
+  const d = JSON.parse(msg.data);
+  if(d.type==='updateBalance'){
+    if(d.to===cur() || d.from===cur()){ refreshBalance(); addTx(d); }
+  }
+  if(d.type==='online'){ renderOnline(d.list); }
+};
+
+// --- Client-side storage ---
+const CKEY="vw_current";
+
+// Utility
+const cur=()=>localStorage.getItem(CKEY);
+const setCur=u=>localStorage.setItem(CKEY,u);
+
+// Login/Register logic
+function showReg(){loginBox.classList.add('hidden');regBox.classList.remove('hidden')}
+function backLogin(){regBox.classList.add('hidden');loginBox.classList.remove('hidden')}
+
+function register(){
+  const un = ruser.value.trim();
+  const data = {type:'register',user:un,password:rpass.value,pin:rpin.value,phone:rphone.value};
+  socket.send(JSON.stringify(data));
+}
+
+function login(){
+  const un = luser.value.trim();
+  const data = {type:'login',user:un,password:lpass.value,pin:lpin.value};
+  socket.send(JSON.stringify(data));
+  setCur(un);
+  init();
+}
+
+function logout(){ setCur(''); location.reload(); }
+
+// Placeholder functions (to be handled via server)
+function send(){ 
+  const data={type:'send',from:cur(),to:to.value,amount:+amt.value,pin:spin.value};
+  socket.send(JSON.stringify(data));
+}
+function mainAdjust(){
+  const data={type:'mainAdjust',user:ctlUser.value,amount:+ctlAmt.value,pin:ctlPin.value};
+  socket.send(JSON.stringify(data));
+}
+
+// UI / TX / Admin update
+function init(){
+  dash.classList.remove('hidden'); loginBox.classList.add('hidden'); regBox.classList.add('hidden');
+  name.innerText = cur();
+}
+function generateQR(){ new QRious({element:qr,value:cur(),size:150}); }
+function uploadPhoto(e){ /* optional local */ }
+function addTx(d){ txLog.innerHTML += `<div>${d.from}→${d.to}: ${d.amount}</div>`; }
+function refreshBalance(){ /* request server for latest */ }
+function renderOnline(list){ 
+  onlineCount.innerText=list.length;
+  onlineList.innerHTML=list.map(u=>`<div>${u}</div>`).join('');
+}
+</script>
+</body>
+</html>
